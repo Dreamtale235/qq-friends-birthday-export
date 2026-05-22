@@ -1,0 +1,5 @@
+playwright>=1.40.0
+
+# 安装步骤：
+#   pip install -r requirements.txt
+#   playwright install chromium
