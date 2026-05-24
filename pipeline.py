@@ -24,6 +24,14 @@ def run_pipeline(
     所有 UI 交互通过回调注入，与 GUI/CLI 解耦。
     """
     mgr = None
+    browser_closed = False
+
+    def close_browser():
+        nonlocal browser_closed
+        if mgr and not browser_closed:
+            mgr.close()
+            browser_closed = True
+
     try:
         on_status("正在检测登录状态...")
         on_log("检测已有会话...")
@@ -46,13 +54,13 @@ def run_pipeline(
             on_log("需要登录，请扫描二维码...")
             success = mgr.login(page, status_callback=on_log)
             if not success:
-                mgr.close()
+                close_browser()
                 on_error("登录超时或失败")
                 return
 
         if is_cancelled():
             on_log("用户取消操作")
-            mgr.close()
+            close_browser()
             on_error("用户取消")
             return
 
@@ -67,7 +75,7 @@ def run_pipeline(
 
         if is_cancelled():
             on_log("用户取消操作")
-            mgr.close()
+            close_browser()
             on_error("用户取消")
             return
 
@@ -88,7 +96,7 @@ def run_pipeline(
         output_path = export_csv(friends)
         on_log(f"CSV 已保存至 {output_path}")
 
-        mgr.close()
+        close_browser()
         on_log("浏览器已关闭")
 
         on_done(output_path, len(friends), friends)
@@ -100,8 +108,5 @@ def run_pipeline(
             on_error("浏览器已关闭，导出中断")
         else:
             on_error(f"程序异常：{e}")
-        if mgr:
-            try:
-                mgr.close()
-            except Exception:
-                pass
+    finally:
+        close_browser()

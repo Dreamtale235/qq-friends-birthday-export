@@ -52,6 +52,9 @@ class AuthManager:
         """
         if not self.session_exists():
             return False
+        pw = None
+        browser = None
+        context = None
         try:
             pw = sync_playwright().start()
             browser = pw.chromium.launch(headless=True)
@@ -61,13 +64,26 @@ class AuthManager:
             page.wait_for_timeout(3000)
 
             valid = self._is_logged_in(page)
-
-            context.close()
-            browser.close()
-            pw.stop()
             return valid
         except Exception:
+            logger.exception("检查会话有效性失败")
             return False
+        finally:
+            if context:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+            if browser:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+            if pw:
+                try:
+                    pw.stop()
+                except Exception:
+                    pass
 
     def _is_logged_in(self, page: Page) -> bool:
         """检测页面是否处于已登录状态"""
@@ -184,11 +200,23 @@ class AuthManager:
     def close(self):
         """关闭浏览器和 Playwright"""
         if self._context:
-            self._context.close()
+            try:
+                self._context.close()
+            except Exception:
+                logger.debug("关闭浏览器上下文失败", exc_info=True)
+            self._context = None
         if self._browser:
-            self._browser.close()
+            try:
+                self._browser.close()
+            except Exception:
+                logger.debug("关闭浏览器失败", exc_info=True)
+            self._browser = None
         if self._playwright:
-            self._playwright.stop()
+            try:
+                self._playwright.stop()
+            except Exception:
+                logger.debug("停止 Playwright 失败", exc_info=True)
+            self._playwright = None
         logger.info("浏览器已关闭")
 
     @property

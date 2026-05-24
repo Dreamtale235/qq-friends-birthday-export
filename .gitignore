@@ -1,0 +1,32 @@
+# 敏感信息
+sessions/
+.env
+.env.*
+
+# 数据输出
+data/*.csv
+data/*.html
+data/*.png
+
+# 运行时产物
+logs/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.pytest_cache/
+
+# 构建产物
+build/
+dist/
+*.zip
+*.7z
+browsers/
+.venv/
+venv/
+
+# 编辑器 & 工具
+.claude/
+.vscode/
+.idea/

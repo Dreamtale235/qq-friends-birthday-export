@@ -58,6 +58,7 @@ Python 版本要求 3.10+，安装时勾选 tcl/tk（Tkinter GUI 支持）。
 
 ### 7. 调试方法
 
-- 运行时会自动在 `data/` 目录保存每月 HTML 和截图
 - 日志文件位于 `logs/`，`error_*.log` 专门记录错误
-- 若爬取结果为 0，查看 `data/month_05.html` 确认日历 DOM 是否存在
+- 若爬取结果为 0，可将 `config.py` 中的 `DEBUG` 改为 `True` 后重试
+- 开启调试后，程序会在 `data/` 目录保存页面 HTML 和截图，便于确认日历 DOM 是否变化
+- 调试完成后建议改回 `DEBUG = False`，避免输出文件过多

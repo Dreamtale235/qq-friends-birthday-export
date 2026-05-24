@@ -17,13 +17,26 @@ def calc_zodiac(month: int, day: int) -> str:
     return "摩羯座"
 
 
+def _next_birthday(today: date, month: int, day: int) -> date:
+    """返回下一次生日日期；2 月 29 日在非闰年按 2 月 28 日提醒。"""
+    year = today.year
+    while True:
+        try:
+            birthday = date(year, month, day)
+        except ValueError:
+            if month == 2 and day == 29:
+                birthday = date(year, 2, 28)
+            else:
+                raise
+        if birthday >= today:
+            return birthday
+        year += 1
+
+
 def calc_days_until_birthday(month: int, day: int) -> int:
     """计算距离下次生日的天数（0 = 今天，正数 = 未来天数）"""
     today = date.today()
-    this_year_bday = date(today.year, month, day)
-    if this_year_bday < today:
-        this_year_bday = date(today.year + 1, month, day)
-    return (this_year_bday - today).days
+    return (_next_birthday(today, month, day) - today).days
 
 
 def clean_name(raw: str) -> str:

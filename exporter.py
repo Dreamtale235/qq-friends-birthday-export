@@ -23,6 +23,7 @@ def export_csv(friends: list[dict], output_path: Path | None = None) -> Path:
     if output_path is None:
         today = date.today().strftime("%Y-%m-%d")
         output_path = DATA_DIR / f"qq_friends_birthdays_{today}.csv"
+        output_path = _next_available_path(output_path)
 
     # 按生日日期排序（MM-DD）
     friends_sorted = sorted(
@@ -44,3 +45,20 @@ def export_csv(friends: list[dict], output_path: Path | None = None) -> Path:
 
     logger.info(f"已导出 {len(friends_sorted)} 位好友生日 → {output_path}")
     return output_path
+
+
+def _next_available_path(path: Path) -> Path:
+    """避免同一天多次导出时覆盖已有 CSV。"""
+    if not path.exists():
+        return path
+
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+
+    index = 2
+    while True:
+        candidate = parent / f"{stem}_{index}{suffix}"
+        if not candidate.exists():
+            return candidate
+        index += 1

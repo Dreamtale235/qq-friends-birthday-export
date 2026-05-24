@@ -7,6 +7,7 @@
 - **扫码登录**：通过 QQ 手机版扫描二维码登录 QQ 邮箱，会话自动保存，一次登录多次使用
 - **自动爬取**：遍历 QQ 邮箱日历 1-12 月，提取所有好友生日信息
 - **CSV 导出**：按日期排序导出 UTF-8 with BOM 编码的 CSV（含星座、距今天数）
+- **防覆盖**：同一天多次导出会自动生成新文件名，避免覆盖旧结果
 - **双模式**：Tkinter GUI（进度条 + 日志窗口）和 CLI 命令行
 - **可打包**：支持 PyInstaller 打包为独立 .exe
 
@@ -36,6 +37,15 @@ python main.py --cli
 
 首次运行会打开浏览器窗口，用**手机 QQ 扫描二维码**登录。登录成功后会话自动保存，下次无需重复扫码。
 
+### 自检
+
+```bash
+python -m py_compile *.py
+python -m unittest discover -s tests
+```
+
+自检只覆盖日期、星座等本地工具函数，不会打开浏览器或访问 QQ 邮箱。
+
 ### 打包为 EXE
 
 ```bash
@@ -56,12 +66,22 @@ pyinstaller QQ好友生日导出.spec
 ├── config.py             # 全局配置
 ├── logger.py             # 日志系统
 ├── utils.py              # 工具函数（星座、日期计算）
+├── tests/                # 本地自检测试
 ├── requirements.txt      # Python 依赖
+├── CHANGELOG.md          # 更新日志
+├── LICENSE               # 开源协议
 ├── QQ好友生日导出.spec    # PyInstaller 打包配置
 ├── data/                 # 输出目录（CSV、调试 HTML/截图）
 ├── sessions/             # 浏览器会话（自动保存，已 gitignore）
 └── logs/                 # 运行日志
 ```
+
+## 隐私与安全
+
+- `sessions/` 保存浏览器登录会话，等同于本机登录状态，请勿上传或分享
+- `data/` 可能包含好友昵称、生日等个人信息，请勿提交到公开仓库
+- `logs/` 可能包含运行路径和错误上下文，请在反馈问题前先检查敏感信息
+- `.gitignore` 已默认排除会话、数据、日志、缓存和构建产物
 
 ## 常见问题
 
@@ -96,4 +116,4 @@ pyinstaller QQ好友生日导出.spec
 
 ## License
 
-MIT
+MIT，详见 [LICENSE](LICENSE)。
