@@ -25,6 +25,8 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
+首次运行会自动下载 Chromium 浏览器内核（约 150MB），需要稳定的网络。
+
 ### 运行
 
 ```bash
@@ -57,23 +59,23 @@ pyinstaller QQ好友生日导出.spec
 
 ```
 ├── main.py              # 入口（Chromium 检测 + 模式路由）
-├── pipeline.py           # 工作流编排（登录 → 爬取 → 导出）
-├── auth.py               # QQ 邮箱登录 & 会话管理
-├── crawler.py            # 日历 DOM 解析 & 数据提取
-├── exporter.py           # CSV 导出
-├── gui.py                # Tkinter GUI
-├── run_cli.py            # CLI 命令行
-├── config.py             # 全局配置
-├── logger.py             # 日志系统
-├── utils.py              # 工具函数（星座、日期计算）
-├── tests/                # 本地自检测试
-├── requirements.txt      # Python 依赖
-├── CHANGELOG.md          # 更新日志
-├── LICENSE               # 开源协议
-├── QQ好友生日导出.spec    # PyInstaller 打包配置
-├── data/                 # 输出目录（CSV、调试 HTML/截图）
-├── sessions/             # 浏览器会话（自动保存，已 gitignore）
-└── logs/                 # 运行日志
+├── pipeline.py          # 工作流编排（登录 → 爬取 → 导出）
+├── auth.py              # QQ 邮箱登录 & 会话管理
+├── crawler.py           # 日历 DOM 解析 & 数据提取
+├── exporter.py          # CSV 导出
+├── gui.py               # Tkinter GUI
+├── run_cli.py           # CLI 命令行
+├── config.py            # 全局配置
+├── logger.py            # 日志系统
+├── utils.py             # 工具函数（星座、日期计算）
+├── tests/               # 本地自检测试
+├── requirements.txt     # Python 依赖
+├── CHANGELOG.md         # 更新日志
+├── LICENSE              # 开源协议
+├── QQ好友生日导出.spec   # PyInstaller 打包配置
+├── data/                # 输出目录（CSV、调试 HTML/截图）
+├── sessions/            # 浏览器会话（自动保存，已 gitignore）
+└── logs/                # 运行日志
 ```
 
 ## 隐私与安全
@@ -90,6 +92,10 @@ pyinstaller QQ好友生日导出.spec
 - **会话过期**：通常有效期几天，过期后需重新扫码
 - **账号风控**：频繁登录可能触发验证，需在手机上确认
 
+### 运行环境
+- **杀毒软件**：部分杀毒软件可能拦截 Playwright 的自动化浏览器操作，如遇异常可尝试暂时关闭
+- **特殊字符**：好友昵称含特殊字符（如 ´͈ ᵕ `͈ ◞♡）时，命令行预览可能显示乱码，但 CSV 文件不受影响（UTF-8 with BOM）
+
 ### 数据源
 - **日历为空**：需在 QQ 邮箱「日历 → 日历分类」中勾选「好友生日」
 - **好友未公开生日**：仅已填写生日且设为可见的好友会显示
@@ -97,16 +103,21 @@ pyinstaller QQ好友生日导出.spec
 
 ### 页面结构变化
 - 本工具依赖 QQ 邮箱日历的 CSS 选择器定位数据。若 QQ 邮箱前端改版，需修改 `crawler.py` 中的选择器
-- 调试方法：设置 `config.py` 中 `DEBUG = True`，运行后查看 `data/month_*.html` 定位实际 DOM 结构
+- 调试方法：设置 `config.py` 中 `DEBUG = True`，运行后查看 `data/month_*.html` 定位实际 DOM 结构。调试完成后记得改回 `DEBUG = False`
 
 ### 数据准确性
 - 同一天多个生日时，因日历堆叠可能漏掉个别条目
+- 月末/月初的生日可能被归到相邻月份
 - 农历/公历混合显示，本工具统一按公历处理
 - CSV 中 `birth_year` 字段为空（QQ 邮箱不提供出生年份）
 
 ### CSV 乱码
 - Excel 直接打开可能中文乱码 → 使用「数据 → 从文本/CSV → UTF-8」导入
 - 推荐使用 WPS 或 VS Code 打开
+
+### 调试
+- 日志文件位于 `logs/`，`error_*.log` 专门记录错误
+- 若爬取结果为 0，将 `config.py` 中 `DEBUG = True` 后重试，会在 `data/` 保存页面 HTML 和截图
 
 ## 技术栈
 
