@@ -4,7 +4,6 @@ import random
 import re
 import time
 from datetime import datetime
-from pathlib import Path
 from playwright.sync_api import Page
 
 from config import DEBUG, MONTH_SWITCH_DELAY_MIN, MONTH_SWITCH_DELAY_MAX, DATA_DIR
@@ -23,6 +22,7 @@ class QQMailCrawler:
         self.page = page
         self.callbacks = callbacks or {}
         self.friends: dict[str, dict] = {}
+        self.failed_months: list[int] = []
 
     def _status(self, msg: str):
         logger.info(msg)
@@ -86,22 +86,42 @@ class QQMailCrawler:
             except Exception:
                 continue
 
-        if not clicked:
-            self._status("未找到日历入口，尝试直接访问 URL...")
-            try:
-                self.page.goto("https://wx.mail.qq.com/home/index#/calendar", timeout=15000)
-            except Exception:
-                pass
+        if clicked and self._wait_for_calendar_ready():
+            self._debug_screenshot("02_calendar_loaded")
+            self._debug_html("02_calendar_page")
+            return True
 
-        self.page.wait_for_timeout(2000)
+        self._status("未确认日历已加载，尝试直接访问 URL...")
+        try:
+            self.page.goto(
+                "https://wx.mail.qq.com/home/index#/calendar",
+                timeout=15000,
+                wait_until="domcontentloaded",
+            )
+        except Exception as exc:
+            logger.warning("直接访问日历失败: %s", exc)
+
         self._debug_screenshot("02_calendar_loaded")
         self._debug_html("02_calendar_page")
-        return True
+        ready = self._wait_for_calendar_ready()
+        if not ready:
+            self._status("未检测到日历网格，停止导出")
+        return ready
+
+    def _wait_for_calendar_ready(self) -> bool:
+        """确认日历主体已经出现，而不是只依赖 URL 变化。"""
+        selector = ".grid-cell"
+        try:
+            self.page.wait_for_selector(selector, state="visible", timeout=10000)
+            return True
+        except Exception:
+            return False
 
     # ── 遍历 12 个月 ──
 
     def crawl_all_months(self) -> list[dict]:
         self._status("开始遍历 1–12 月生日日历...")
+        self.failed_months.clear()
 
         for month in range(1, 13):
             # 检查取消标志
@@ -112,13 +132,15 @@ class QQMailCrawler:
             # 检查页面是否仍然打开
             if self._page_closed():
                 self._status("浏览器页面已关闭，停止爬取")
+                self.failed_months.append(month)
                 break
 
             self._status(f"正在处理 {month} 月...")
             self._progress(month - 1, 12)
 
             try:
-                self._navigate_to_month(month)
+                if not self._navigate_to_month(month):
+                    raise RuntimeError(f"无法确认已切换到 {month} 月")
                 self.page.wait_for_timeout(2500)
 
                 # 保存当前月份的 HTML 用于调试
@@ -135,8 +157,10 @@ class QQMailCrawler:
                 msg = str(e)
                 if "closed" in msg.lower() or "target" in msg.lower():
                     self._status("浏览器已关闭，停止爬取")
+                    self.failed_months.append(month)
                     break
                 logger.warning(f"  {month} 月处理异常: {e}")
+                self.failed_months.append(month)
                 continue
 
             self._random_delay()
@@ -161,15 +185,16 @@ class QQMailCrawler:
 
     # ── 月份导航 ──
 
-    def _navigate_to_month(self, target_month: int):
+    def _navigate_to_month(self, target_month: int) -> bool:
         """切换到指定月份"""
         current = self._get_current_month_year()
         if current and current[0] == target_month:
-            return
+            return True
 
         # 策略 1：使用月份选择器直接点击
         if self._try_month_picker(target_month):
-            return
+            self.page.wait_for_timeout(800)
+            return self._month_matches_or_unknown(target_month)
 
         # 策略 2：使用 prev/next 按钮
         if current:
@@ -182,11 +207,18 @@ class QQMailCrawler:
             for _ in range(abs(clicks)):
                 if not self._click_nav_button(direction):
                     logger.warning(f"  月份切换失败")
-                    break
+                    return False
                 self.page.wait_for_timeout(1000)
         else:
             # 无法检测当前月份，从 1 月开始暴力尝试
             self._navigate_unknown_to_month(target_month)
+
+        return self._month_matches_or_unknown(target_month)
+
+    def _month_matches_or_unknown(self, target_month: int) -> bool:
+        """能读取月份时必须匹配；旧页面无法读取时保留兼容路径。"""
+        observed = self._get_current_month_year()
+        return observed is None or observed[0] == target_month
 
     def _try_month_picker(self, target_month: int) -> bool:
         """尝试使用月份选择器（点击年/月文字弹出选择面板）"""

@@ -1,18 +1,15 @@
 """Tkinter GUI — QQ 好友生日导出工具"""
-import logging
 import queue
-import sys
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
-from pathlib import Path
 from datetime import datetime
 
+from auth import clear_saved_session
+from exporter import ExportResult
 from logger import setup
 from pipeline import run_pipeline
-
-logger = logging.getLogger(__name__)
-
+from utils import open_folder
 
 class BirthdayExporterGUI:
     """主 GUI 窗口"""
@@ -20,14 +17,15 @@ class BirthdayExporterGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("QQ 好友生日导出工具")
-        self.root.geometry("560x480")
+        self.root.geometry("600x540")
         self.root.minsize(480, 360)
         self.root.resizable(True, True)
 
         self._message_queue = queue.Queue()
         self._worker_thread: threading.Thread | None = None
         self._cancel_flag = threading.Event()
-        self._output_path: Path | None = None
+        self._output_result: ExportResult | None = None
+        self._persist_session = False
         self._running = False
 
         self._build_ui()
@@ -69,6 +67,14 @@ class BirthdayExporterGUI:
             status_frame, textvariable=self.progress_text, font=("", 9)
         ).pack(anchor=tk.E)
 
+        self.remember_session_var = tk.BooleanVar(value=False)
+        self.remember_session_check = ttk.Checkbutton(
+            status_frame,
+            text="记住登录状态（会在本机保存敏感会话文件）",
+            variable=self.remember_session_var,
+        )
+        self.remember_session_check.pack(anchor=tk.W, pady=(6, 0))
+
         # 日志区
         log_frame = ttk.LabelFrame(main, text="运行日志", padding=4)
         log_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
@@ -103,6 +109,13 @@ class BirthdayExporterGUI:
         )
         self.open_btn.pack(side=tk.LEFT)
 
+        self.clear_session_btn = ttk.Button(
+            btn_frame,
+            text="清除登录状态",
+            command=self._clear_saved_session,
+        )
+        self.clear_session_btn.pack(side=tk.LEFT, padx=(8, 0))
+
         self.cancel_btn = ttk.Button(
             btn_frame,
             text="取消",
@@ -113,7 +126,10 @@ class BirthdayExporterGUI:
 
         # 版权/版本
         ttk.Label(
-            main, text="v0.2 · QQ 邮箱日历数据来源", font=("", 8), foreground="gray"
+            main,
+            text="v0.4.0 · 非腾讯官方工具 · 维护模式",
+            font=("", 8),
+            foreground="gray",
         ).pack(side=tk.BOTTOM, pady=(8, 0))
 
     # ── 日志 ──
@@ -137,6 +153,7 @@ class BirthdayExporterGUI:
 
         self._running = True
         self._cancel_flag.clear()
+        self._persist_session = bool(self.remember_session_var.get())
         self._set_ui_state("running")
         self._log("开始导出流程...")
 
@@ -153,9 +170,27 @@ class BirthdayExporterGUI:
         self._set_status("取消中，等待当前操作完成...")
 
     def _open_output_folder(self):
-        if self._output_path and self._output_path.parent.exists():
-            import os
-            os.startfile(self._output_path.parent)
+        if self._output_result and self._output_result.csv_path.parent.exists():
+            try:
+                open_folder(self._output_result.csv_path.parent)
+            except OSError as exc:
+                messagebox.showerror("无法打开目录", str(exc))
+
+    def _clear_saved_session(self):
+        if self._running:
+            return
+        confirmed = messagebox.askyesno(
+            "清除登录状态",
+            "这会删除本工具保存的 QQ 登录状态，下次需要重新扫码。\n\n继续吗？",
+        )
+        if not confirmed:
+            return
+        removed = clear_saved_session()
+        if removed:
+            self._log("已清除保存的登录状态")
+            messagebox.showinfo("清除完成", "已删除保存的 QQ 登录状态。")
+        else:
+            messagebox.showinfo("无需清除", "没有找到已保存的登录状态。")
 
     # ── UI 状态管理 ──
 
@@ -165,13 +200,20 @@ class BirthdayExporterGUI:
             self.start_btn.configure(state=tk.DISABLED)
             self.cancel_btn.configure(state=tk.NORMAL)
             self.open_btn.configure(state=tk.DISABLED)
+            self.clear_session_btn.configure(state=tk.DISABLED)
+            self.remember_session_check.configure(state=tk.DISABLED)
         elif state == "done":
             self.start_btn.configure(state=tk.NORMAL)
             self.cancel_btn.configure(state=tk.DISABLED)
             self.open_btn.configure(state=tk.NORMAL)
+            self.clear_session_btn.configure(state=tk.NORMAL)
+            self.remember_session_check.configure(state=tk.NORMAL)
         else:  # idle
             self.start_btn.configure(state=tk.NORMAL)
             self.cancel_btn.configure(state=tk.DISABLED)
+            self.open_btn.configure(state=tk.DISABLED)
+            self.clear_session_btn.configure(state=tk.NORMAL)
+            self.remember_session_check.configure(state=tk.NORMAL)
 
     def _set_status(self, msg: str):
         self._message_queue.put(("status", msg))
@@ -197,8 +239,8 @@ class BirthdayExporterGUI:
                     self.progress_var.set(current)
                     self.progress_text.set(f"{current}/{total} 月")
                 elif msg_type == "done":
-                    path, count = msg[1]
-                    self._on_done(path, count)
+                    result, count = msg[1]
+                    self._on_done(result, count)
                 elif msg_type == "error":
                     self._on_error(msg[1])
 
@@ -208,20 +250,26 @@ class BirthdayExporterGUI:
 
         self.root.after(100, self._poll_queue)
 
-    def _on_done(self, path: Path, count: int):
+    def _on_done(self, result: ExportResult, count: int):
         self._running = False
-        self._output_path = path
+        self._output_result = result
         self._set_ui_state("done")
         self._set_status(f"导出完成 — {count} 位好友生日")
         self.progress_var.set(12)
         self.progress_text.set("12/12 月")
-        self._log(f"✓ 导出成功：{path}")
+        self._log(f"✓ CSV：{result.csv_path}")
+        self._log(f"✓ ICS：{result.ics_path}")
         self._log(f"✓ 共计 {count} 位好友生日")
-        messagebox.showinfo("导出完成", f"已导出 {count} 位好友生日\n文件：{path}")
+        messagebox.showinfo(
+            "导出完成",
+            f"已导出 {count} 位好友生日\n\n"
+            f"CSV：{result.csv_path}\n"
+            f"ICS：{result.ics_path}",
+        )
 
     def _on_error(self, error_msg: str):
         self._running = False
-        self._set_ui_state("done")
+        self._set_ui_state("idle")
         self._set_status(f"错误：{error_msg}")
         self._log(f"✗ 错误：{error_msg}")
         messagebox.showerror("导出失败", error_msg)
@@ -237,6 +285,7 @@ class BirthdayExporterGUI:
             on_done=lambda path, count, friends: self._message_queue.put(("done", (path, count))),
             on_error=lambda msg: self._message_queue.put(("error", msg)),
             is_cancelled=self._cancel_flag.is_set,
+            persist_session=self._persist_session,
         )
 
     # ── 启动 ──

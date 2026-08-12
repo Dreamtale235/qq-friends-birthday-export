@@ -6,7 +6,7 @@ from logger import setup
 from pipeline import run_pipeline
 
 
-def run_cli():
+def run_cli(remember_session: bool = False):
     setup()
     logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ def run_cli():
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     print("=" * 50)
-    print("  QQ 好友生日导出工具 v0.2 (CLI)")
+    print("  QQ 好友生日导出工具 v0.4.0 (CLI)")
     print("=" * 50)
     print()
 
@@ -29,11 +29,12 @@ def run_cli():
     def on_log(msg: str):
         logger.info(f"  → {msg}")
 
-    def on_done(path, count, friends):
+    def on_done(result, count, friends):
         nonlocal _cancelled
         _cancelled = True
         print()
-        print(f"  Done! 文件：{path}")
+        print(f"  Done! CSV：{result.csv_path}")
+        print(f"  Done! ICS：{result.ics_path}")
         print(f"  Done! 共 {count} 位好友生日")
         print()
 
@@ -51,7 +52,15 @@ def run_cli():
     def is_cancelled() -> bool:
         return _cancelled
 
-    run_pipeline(on_status, on_progress, on_log, on_done, on_error, is_cancelled)
+    run_pipeline(
+        on_status,
+        on_progress,
+        on_log,
+        on_done,
+        on_error,
+        is_cancelled,
+        persist_session=remember_session,
+    )
 
 
 if __name__ == "__main__":

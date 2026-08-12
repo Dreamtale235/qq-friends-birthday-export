@@ -1,11 +1,10 @@
 """QQ 好友生日导出 — 统一工作流编排（GUI / CLI 共用）"""
 import logging
-from pathlib import Path
 from typing import Callable
 
 from auth import AuthManager
 from crawler import QQMailCrawler
-from exporter import export_csv
+from exporter import ExportResult, export_all
 from config import QQ_MAIL_URL, PAGE_GOTO_TIMEOUT
 
 logger = logging.getLogger(__name__)
@@ -15,9 +14,10 @@ def run_pipeline(
     on_status: Callable[[str], None],
     on_progress: Callable[[int, int], None],
     on_log: Callable[[str], None],
-    on_done: Callable[[Path, int, list[dict]], None],
+    on_done: Callable[[ExportResult, int, list[dict]], None],
     on_error: Callable[[str], None],
     is_cancelled: Callable[[], bool],
+    persist_session: bool = False,
 ) -> None:
     """执行 登录 → 导航 → 爬取 → 导出 → 关闭 全流程
 
@@ -34,9 +34,12 @@ def run_pipeline(
 
     try:
         on_status("正在检测登录状态...")
-        on_log("检测已有会话...")
+        if persist_session:
+            on_log("检测用户明确允许保存的已有会话...")
+        else:
+            on_log("本次不读取或保存登录状态")
 
-        mgr = AuthManager(headless=False)
+        mgr = AuthManager(headless=False, persist_session=persist_session)
         session_valid = mgr.check_session_valid()
 
         on_status("正在启动浏览器...")
@@ -71,7 +74,9 @@ def run_pipeline(
             "on_cancel_check": is_cancelled,
         })
 
-        crawler.navigate_to_calendar()
+        if not crawler.navigate_to_calendar():
+            on_error("未检测到 QQ 邮箱日历页面；页面可能已改版")
+            return
 
         if is_cancelled():
             on_log("用户取消操作")
@@ -80,6 +85,18 @@ def run_pipeline(
             return
 
         friends = crawler.crawl_all_months()
+
+        if is_cancelled():
+            on_log("用户取消操作")
+            on_error("用户取消")
+            return
+
+        if crawler.failed_months:
+            failed = "、".join(str(month) for month in crawler.failed_months)
+            on_log(f"以下月份处理失败：{failed}")
+            on_log("为避免生成不完整备份，本次不写出 CSV 或 ICS")
+            on_error(f"月份处理失败：{failed}")
+            return
 
         if not friends:
             on_log("未获取到任何好友生日数据")
@@ -91,15 +108,16 @@ def run_pipeline(
             on_error("未获取到数据，请查看日志")
             return
 
-        on_status("正在导出 CSV...")
-        on_log(f"共获取 {len(friends)} 位好友生日，正在生成 CSV...")
-        output_path = export_csv(friends)
-        on_log(f"CSV 已保存至 {output_path}")
+        on_status("正在导出 CSV 和 ICS...")
+        on_log(f"共获取 {len(friends)} 位好友生日，正在生成两个文件...")
+        result = export_all(friends)
+        on_log(f"CSV 已保存至 {result.csv_path}")
+        on_log(f"ICS 已保存至 {result.ics_path}")
 
         close_browser()
         on_log("浏览器已关闭")
 
-        on_done(output_path, len(friends), friends)
+        on_done(result, len(friends), friends)
 
     except Exception as e:
         logger.exception("导出过程异常")
