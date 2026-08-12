@@ -1,10 +1,18 @@
-"""QQ 邮箱登录 & 会话持久化"""
+"""QQ 邮箱登录与可选的会话持久化。"""
 import logging
+import os
 from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page
 
 from config import QQ_MAIL_URL, SESSION_FILE, LOGIN_TIMEOUT, PAGE_GOTO_TIMEOUT
 
 logger = logging.getLogger(__name__)
+
+
+def clear_saved_session() -> bool:
+    """删除本工具保存的唯一会话文件；返回删除前是否存在。"""
+    existed = SESSION_FILE.exists()
+    SESSION_FILE.unlink(missing_ok=True)
+    return existed
 
 # 已登录的页面特征（满足任一即认为已登录）
 LOGGED_IN_INDICATORS = [
@@ -35,8 +43,9 @@ LOGIN_PAGE_INDICATORS = [
 class AuthManager:
     """管理 QQ 邮箱的浏览器登录会话"""
 
-    def __init__(self, headless: bool = False):
+    def __init__(self, headless: bool = False, persist_session: bool = False):
         self.headless = headless
+        self.persist_session = persist_session
         self._playwright = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
@@ -50,7 +59,7 @@ class AuthManager:
 
         通过检测页面 DOM 元素判断登录态，而非 URL 关键字。
         """
-        if not self.session_exists():
+        if not self.persist_session or not self.session_exists():
             return False
         pw = None
         browser = None
@@ -128,13 +137,15 @@ class AuthManager:
                 continue
         return False
 
-    def start_browser(self, use_saved_session: bool = True) -> Page:
+    def start_browser(self, use_saved_session: bool | None = None) -> Page:
         """启动浏览器并返回页面对象"""
+        if use_saved_session is None:
+            use_saved_session = self.persist_session
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch(
             headless=self.headless,
         )
-        if use_saved_session and self.session_exists():
+        if self.persist_session and use_saved_session and self.session_exists():
             logger.info("加载已保存的会话...")
             self._context = self._browser.new_context(
                 storage_state=str(SESSION_FILE)
@@ -170,7 +181,7 @@ class AuthManager:
         # 如果已经登录（极少情况），直接返回
         if self._is_logged_in(page):
             update_status("检测到已登录，无需扫码")
-            self._context.storage_state(path=str(SESSION_FILE))
+            self._save_session(update_status)
             return True
 
         # 确认在登录页
@@ -188,14 +199,32 @@ class AuthManager:
             elapsed += poll_interval
 
             if self._is_logged_in(page):
-                update_status("登录成功！正在保存会话...")
-                self._context.storage_state(path=str(SESSION_FILE))
-                logger.info(f"会话已保存至 {SESSION_FILE}")
-                update_status("会话已保存，下次启动无需重复登录")
+                update_status("登录成功！")
+                self._save_session(update_status)
                 return True
 
         update_status(f"登录超时（{LOGIN_TIMEOUT // 1000} 秒内未检测到登录成功）")
         return False
+
+    def _save_session(self, update_status=None) -> None:
+        """仅在用户明确选择时保存登录状态。"""
+        if not self.persist_session:
+            if update_status:
+                update_status("本次运行不会保存登录状态")
+            return
+
+        self._context.storage_state(path=str(SESSION_FILE))
+        try:
+            os.chmod(SESSION_FILE, 0o600)
+        except OSError:
+            logger.warning("无法收紧会话文件权限，请确保本机账户安全")
+        logger.info("会话已保存至 %s", SESSION_FILE)
+        if update_status:
+            update_status("会话已保存；可随时在工具中清除")
+
+    @staticmethod
+    def clear_saved_session() -> bool:
+        return clear_saved_session()
 
     def close(self):
         """关闭浏览器和 Playwright"""

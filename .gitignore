@@ -5,6 +5,7 @@ sessions/
 
 # 数据输出
 data/*.csv
+data/*.ics
 data/*.html
 data/*.png
 

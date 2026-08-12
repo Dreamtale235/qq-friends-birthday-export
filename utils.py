@@ -1,5 +1,9 @@
 """工具函数：星座、日期计算"""
-from datetime import date, datetime
+import os
+import subprocess
+import sys
+from datetime import date
+from pathlib import Path
 
 
 def calc_zodiac(month: int, day: int) -> str:
@@ -56,3 +60,14 @@ def parse_birthday_date(date_str: str) -> tuple[int, int] | None:
     if m:
         return int(m.group(1)), int(m.group(2))
     return None
+
+
+def open_folder(path: Path) -> None:
+    """使用当前操作系统的文件管理器打开目录。"""
+    resolved = str(path.resolve())
+    if sys.platform == "win32":
+        os.startfile(resolved)
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", resolved])
+    else:
+        subprocess.Popen(["xdg-open", resolved])
